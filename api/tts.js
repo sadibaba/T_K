@@ -1,4 +1,4 @@
-import { speakable, synthesize, ttsReady, voiceFor } from '../lib/tts.mjs';
+import { speakable, synthesize, synthesizeStream, ttsProvider, ttsReady, voiceFor } from '../lib/tts.mjs';
 import { cors, rateLimit, readJson, sendJson } from '../lib/http.mjs';
 
 /**
@@ -39,6 +39,29 @@ export default async function handler(req, res) {
     const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
     const text = url.searchParams.get('t') ?? '';
     const lang = url.searchParams.get('l') ?? 'ur';
+
+    // Progressive audio: the browser starts playing before the file is complete.
+    if (url.searchParams.get('stream') === '1' && ttsProvider() === 'elevenlabs') {
+      try {
+        const { body, contentType } = await synthesizeStream(text, lang);
+        res.writeHead(200, {
+          'Content-Type': contentType,
+          'Cache-Control': 'no-store',
+          'X-Voice': voiceFor(lang),
+          'X-TTS-Stream': '1',
+        });
+        for await (const chunk of body) {
+          if (res.writableEnded) break;
+          res.write(chunk);
+        }
+        return res.end();
+      } catch (err) {
+        console.error('[tts] stream failed:', err?.message);
+        if (res.headersSent) return res.end();
+        // fall through to the buffered path
+      }
+    }
+
     return produce(res, text, lang, url.searchParams.get('s') ?? 'normal');
   }
 

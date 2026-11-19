@@ -50,6 +50,12 @@
       td.ref { font-family: ui-monospace, "SF Mono", monospace; font-size: 12px; color: var(--gold); }
       td.phone { font-variant-numeric: tabular-nums; }
       .empty { padding: 40px; text-align: center; color: var(--muted); font-size: 14px; }
+      .chip { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; }
+      .chip.confirmed { background: rgba(14,37,33,.08); color: var(--teal); }
+      .chip.cancelled { background: rgba(179,38,30,.09); color: #b3261e; }
+      td button.link { height: 28px; padding: 0 10px; font-size: 11.5px; border-radius: 7px; color: #b3261e; border-color: rgba(179,38,30,.35); }
+      td button.link:hover { background: rgba(179,38,30,.07); }
+      #search { height: 38px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--line); background: transparent; color: var(--ink); font-size: 13px; font-family: inherit; width: 200px; }
 
       .keybox { max-width: 360px; margin: 80px auto; background: #fffdf8; border: 1px solid var(--line); border-radius: 14px; padding: 26px; }
       .keybox h2 { font-family: Georgia, serif; font-weight: 500; font-size: 20px; margin: 0 0 6px; }
@@ -72,6 +78,8 @@
       </div>
       <div class="actions">
         <span id="updated" class="sub" style="margin: 0"></span>
+        <input id="search" type="search" placeholder="Search name or phone" />
+        <button id="export" type="button">Export CSV</button>
         <button id="refresh" type="button">Refresh</button>
       </div>
     </header>
@@ -86,7 +94,7 @@
       </div>
       <table>
         <thead>
-          <tr><th>Ref</th><th>Name</th><th>Phone</th><th>Treatment</th><th>Date</th><th>Time</th><th>Booked at</th></tr>
+          <tr><th>Ref</th><th>Name</th><th>Phone</th><th>Treatment</th><th>Date</th><th>Time</th><th>Status</th><th>Booked at</th><th></th></tr>
         </thead>
         <tbody id="rows"></tbody>
       </table>
@@ -104,6 +112,7 @@
     <script>
       const $ = (id) => document.getElementById(id);
       const KEY_STORAGE = 'tkdent_admin_key';
+      let allRows = [];
 
       function keyFromUrl() {
         const fromUrl = new URLSearchParams(location.search).get('key');
@@ -115,6 +124,48 @@
         if (!value) return '';
         const d = new Date(value);
         return Number.isNaN(d.getTime()) ? value : d.toLocaleString();
+      }
+
+      function visibleRows() {
+        const term = ($('search').value || '').trim().toLowerCase();
+        if (!term) return allRows;
+        return allRows.filter(
+          (r) =>
+            String(r.name).toLowerCase().includes(term) ||
+            String(r.phone).includes(term) ||
+            String(r.ref).toLowerCase().includes(term),
+        );
+      }
+
+      function renderRows() {
+        const rows = visibleRows();
+        $('empty').classList.toggle('hidden', rows.length > 0);
+
+        $('rows').innerHTML = rows
+          .map(
+            (r) => `<tr>
+              <td class="ref">${r.ref}</td>
+              <td>${r.name}</td>
+              <td class="phone"><a href="tel:${r.phone}">${r.phone}</a></td>
+              <td>${r.treatment}</td>
+              <td>${r.date}</td>
+              <td>${r.time}</td>
+              <td><span class="chip ${r.status}">${r.status}</span></td>
+              <td>${fmt(r.createdAt)}</td>
+              <td>${r.status === 'confirmed' ? `<button class="link" data-cancel="${r.ref}" type="button">Cancel</button>` : ''}</td>
+            </tr>`,
+          )
+          .join('');
+      }
+
+      function renderStats() {
+        const today = new Date().toISOString().slice(0, 10);
+        const active = allRows.filter((r) => r.status === 'confirmed');
+        const upcoming = active.filter((r) => r.date >= today).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+
+        $('count').textContent = active.length;
+        $('today').textContent = active.filter((r) => r.date === today).length;
+        $('next').textContent = upcoming[0] ? `${upcoming[0].date.slice(5)} · ${upcoming[0].time}` : '—';
       }
 
       async function load() {
@@ -136,30 +187,46 @@
         $('keybox').classList.add('hidden');
         $('app').classList.remove('hidden');
 
-        const rows = data.bookings ?? [];
-        const today = new Date().toISOString().slice(0, 10);
-        const upcoming = rows.filter((r) => r.date >= today).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
-
-        $('count').textContent = rows.length;
-        $('today').textContent = rows.filter((r) => r.date === today).length;
-        $('next').textContent = upcoming[0] ? `${upcoming[0].date.slice(5)} · ${upcoming[0].time}` : '—';
+        allRows = data.bookings ?? [];
         $('updated').textContent = `Updated ${new Date().toLocaleTimeString()}`;
-        $('empty').classList.toggle('hidden', rows.length > 0);
-
-        $('rows').innerHTML = rows
-          .map(
-            (r) => `<tr>
-              <td class="ref">${r.ref}</td>
-              <td>${r.name}</td>
-              <td class="phone"><a href="tel:${r.phone}">${r.phone}</a></td>
-              <td>${r.treatment}</td>
-              <td>${r.date}</td>
-              <td>${r.time}</td>
-              <td>${fmt(r.createdAt)}</td>
-            </tr>`,
-          )
-          .join('');
+        renderStats();
+        renderRows();
       }
+
+      async function cancel(ref) {
+        const key = keyFromUrl();
+        if (!confirm(`Cancel booking ${ref}?`)) return;
+        const res = await fetch(`/api/bookings?key=${encodeURIComponent(key)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'cancel', ref }),
+        });
+        if (res.ok) load();
+      }
+
+      $('rows').addEventListener('click', (e) => {
+        const ref = e.target?.dataset?.cancel;
+        if (ref) cancel(ref);
+      });
+
+      $('search').addEventListener('input', renderRows);
+
+      $('export').addEventListener('click', () => {
+        const header = ['Ref', 'Name', 'Phone', 'Treatment', 'Date', 'Time', 'Status', 'Booked at'];
+        const lines = [header.join(',')].concat(
+          visibleRows().map((r) =>
+            [r.ref, r.name, r.phone, r.treatment, r.date, r.time, r.status, r.createdAt]
+              .map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`)
+              .join(','),
+          ),
+        );
+        const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `tkdent-bookings-${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
 
       $('unlock').addEventListener('click', () => {
         const value = $('key').value.trim();

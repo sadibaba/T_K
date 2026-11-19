@@ -38,6 +38,7 @@
     close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
     sound: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 10v4h3l4 3V7l-4 3H4Z"/><path d="M15 9a4 4 0 0 1 0 6M17.5 6.5a7 7 0 0 1 0 11"/></svg>',
     mute: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 10v4h3l4 3V7l-4 3H4Z"/><path d="M16 9l5 6M21 9l-5 6"/></svg>',
+    refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 12a8 8 0 1 1 2.3 5.7"/><path d="M4 20v-5h5"/></svg>',
     phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 3h3l2 5-2 1a12 12 0 0 0 6 6l1-2 5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2Z"/></svg>',
     wa: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm5.3 14.1c-.2.6-1.2 1.2-1.7 1.2-.4 0-1 .1-3.2-.9-2.7-1.2-4.4-4-4.5-4.2-.1-.2-1.1-1.5-1.1-2.8 0-1.3.7-2 .9-2.2.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.9 2c.1.2.1.4 0 .6l-.4.5c-.1.2-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 1.6 1.1 1.9 1.2.2.1.4 0 .5-.1l.7-.8c.2-.2.3-.2.6-.1l1.9.9c.3.1.5.2.5.3.1.2.1.6-.1 1.2Z"/></svg>',
   };
@@ -164,6 +165,15 @@
     .card a svg { width: 15px; height: 15px; }
     .card p { margin: 0; font-size: 12px; color: var(--muted); }
 
+    .quick { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 2px; }
+    .quick button {
+      padding: 8px 13px; border-radius: 999px; font-size: 12.5px; cursor: pointer;
+      border: 1px solid rgba(216,184,119,.35); background: transparent; color: var(--gold);
+      font-family: inherit;
+    }
+    .quick button:hover { background: var(--gold-soft); }
+    .divider { align-self: center; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #6f6c66; margin: 2px 0; }
+
     .card.slots .days { display: grid; gap: 11px; }
     .card.slots .day { display: grid; gap: 7px; }
     .card.slots .day b { font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
@@ -245,6 +255,7 @@
             <span><i class="dot" aria-hidden="true"></i> AI assistant
               <em class="badge" hidden>demo voice</em></span>
           </div>
+          <button class="icon-btn newchat" type="button" aria-label="Start a new conversation">${ICON.refresh}</button>
           <button class="icon-btn mute" type="button" aria-label="Mute the assistant" aria-pressed="false">${ICON.sound}</button>
           <button class="icon-btn close" type="button" aria-label="Close">${ICON.close}</button>
         </div>
@@ -280,6 +291,7 @@
     send: wrap.querySelector('.send'),
     close: wrap.querySelector('.close'),
     mute: wrap.querySelector('.mute'),
+    newchat: wrap.querySelector('.newchat'),
     status: wrap.querySelector('.status'),
     langs: [...wrap.querySelectorAll('.langs button')],
   };
@@ -315,6 +327,42 @@
 
   function scrollDown() {
     el.stream.scrollTop = el.stream.scrollHeight;
+  }
+
+  const CHAT_KEY = 'tkdent_chat_v1';
+  const CHAT_TTL = 12 * 60 * 60 * 1000; // hours, so tomorrow starts fresh
+
+  function saveChat() {
+    try {
+      localStorage.setItem(
+        CHAT_KEY,
+        JSON.stringify({
+          messages: state.messages.slice(-20),
+          lang: state.lang,
+          treatmentChosen: state.treatmentChosen,
+          at: Date.now(),
+        }),
+      );
+    } catch {}
+  }
+
+  function loadChat() {
+    try {
+      const raw = localStorage.getItem(CHAT_KEY);
+      if (!raw) return null;
+      const saved = JSON.parse(raw);
+      if (!saved?.messages?.length) return null;
+      if (Date.now() - Number(saved.at ?? 0) > CHAT_TTL) return null;
+      return saved;
+    } catch {
+      return null;
+    }
+  }
+
+  function clearChat() {
+    try {
+      localStorage.removeItem(CHAT_KEY);
+    } catch {}
   }
 
   function isRtl(text) {
@@ -459,11 +507,20 @@
 
   function stopSpeech() {
     state.speech.gen += 1;
+    for (const item of state.speech.queue) {
+      if (item.audio) {
+        try {
+          item.audio.pause();
+          item.audio.removeAttribute('src');
+        } catch {}
+      }
+      if (!item.remote && item.url) URL.revokeObjectURL(item.url);
+    }
     state.speech.queue = [];
     if (state.speech.playing) {
       try {
         state.speech.playing.pause();
-        state.speech.playing.src = '';
+        state.speech.playing.removeAttribute('src');
       } catch {}
       state.speech.playing = null;
     }
@@ -487,6 +544,30 @@
     synth.speak(u);
   }
 
+  /**
+   * The free voice plan allows only two concurrent streams, so we load the item
+   * that is about to play plus exactly one ahead — enough to remove the gap
+   * between sentences without tripping the limit.
+   */
+  function ensureLoaded(item) {
+    if (item.audio) return item.audio;
+    const audio = new Audio();
+    audio.preload = 'auto';
+    audio.src = item.url;
+    try {
+      audio.load();
+    } catch {}
+    item.audio = audio;
+    return audio;
+  }
+
+  function queueAudio(url, { remote = false, text = '', lang = 'ur' } = {}) {
+    const item = { audio: null, url, remote, text, lang };
+    state.speech.queue.push(item);
+    // Prime the queue: the first item loads now, the rest when their turn nears.
+    if (state.speech.queue.length === 1 && !state.speech.playing) ensureLoaded(item);
+  }
+
   function playNext(gen) {
     if (gen !== state.speech.gen) return;
     const next = state.speech.queue.shift();
@@ -495,16 +576,24 @@
       if (!state.busy) clearStatus();
       return;
     }
-    const audio = new Audio(next.url);
-    audio.preload = 'auto';
+
+    const audio = ensureLoaded(next);
     state.speech.playing = audio;
-    audio.onended = audio.onerror = () => {
-      URL.revokeObjectURL(next.url);
+    if (state.speech.queue[0]) ensureLoaded(state.speech.queue[0]);
+
+    audio.onended = () => {
+      if (!next.remote) URL.revokeObjectURL(next.url);
       playNext(gen);
     };
+    audio.onerror = () => {
+      if (!next.remote) URL.revokeObjectURL(next.url);
+      // Never swap to a different voice mid-conversation; report it instead.
+      setStatus('Voice is busy — tap PLAY AGAIN', 'warn');
+      playNext(gen);
+    };
+
     audio.play().catch((err) => {
       if (err?.name === 'NotAllowedError') {
-        // Browser blocked autoplay: keep the clip and retry on the next tap.
         state.speech.playing = null;
         state.speech.queue.unshift(next);
         setStatus('Tap anywhere for sound', 'warn');
@@ -518,7 +607,7 @@
         );
         return;
       }
-      URL.revokeObjectURL(next.url);
+      if (!next.remote) URL.revokeObjectURL(next.url);
       playNext(gen);
     });
   }
@@ -531,10 +620,6 @@
     return 'en';
   }
 
-  /**
-   * Speech is queued through a promise chain so audio always plays in the same
-   * order the sentences were generated, even when TTS responses arrive late.
-   */
   function speak(text) {
     const clean = String(text || '').trim();
     if (!clean || state.muted) return Promise.resolve();
@@ -548,11 +633,17 @@
   async function speakOne(clean) {
     if (state.muted) return;
     const gen = state.speech.gen;
-
     const lang = ttsLangFor(clean);
 
     if (!state.provider?.providers?.tts) {
       browserSpeak(clean, lang);
+      return;
+    }
+
+    if (state.provider.providers.tts === 'elevenlabs') {
+      const url = `${API}/api/tts?t=${encodeURIComponent(clean)}&l=${lang}&stream=1`;
+      queueAudio(url, { remote: true, text: clean, lang });
+      if (!state.speech.playing) playNext(gen);
       return;
     }
 
@@ -564,15 +655,16 @@
       });
       if (gen !== state.speech.gen) return;
       if (!res.ok) throw new Error(`tts ${res.status}`);
-      const url = URL.createObjectURL(await res.blob());
+      const blobUrl = URL.createObjectURL(await res.blob());
       if (gen !== state.speech.gen) {
-        URL.revokeObjectURL(url);
+        URL.revokeObjectURL(blobUrl);
         return;
       }
-      state.speech.queue.push({ url });
+      queueAudio(blobUrl, { text: clean, lang });
       if (!state.speech.playing) playNext(gen);
     } catch {
-      browserSpeak(clean, lang);
+      // Stay silent rather than change voice.
+      setStatus('Voice is busy — tap PLAY AGAIN', 'warn');
     }
   }
 
@@ -583,6 +675,16 @@
       push(text, flush = false) {
         buffer += text;
         const out = [];
+
+        // Start speaking on the first clause instead of waiting for a full stop.
+        if (!flush && buffer.length >= 26) {
+          const comma = Math.max(buffer.lastIndexOf('،', 60), buffer.lastIndexOf(',', 60));
+          if (comma >= 20) {
+            out.push(buffer.slice(0, comma + 1).trim());
+            buffer = buffer.slice(comma + 1);
+          }
+        }
+
         const re = /[^.!?۔؟\n]+[.!?۔؟\n]+/g;
         let match;
         let last = 0;
@@ -618,11 +720,13 @@
 
     addBubble('user', clean);
     state.messages.push({ role: 'user', content: clean });
+    saveChat();
 
     const bubble = addBubble('assistant', '', { typing: true });
     let assistantText = '';
     let failed = false;
-    const splitter = sentenceSplitter();
+    let pendingSlots = null;
+    let splitter = sentenceSplitter();
     setStatus('Thinking…');
 
     try {
@@ -630,7 +734,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: state.messages.slice(-12),
+          messages: state.messages.slice(-20),
           lang: state.lang,
           ...(slotId ? { selectedSlot: slotId } : {}),
         }),
@@ -669,10 +773,25 @@
           } else if (event.type === 'tool') {
             setStatus(event.name === 'book_appointment' ? 'Booking…' : 'Checking…');
           } else if (event.type === 'card') {
-            addCard(event.card);
+            // Show the pickers only when the bot is actually asking about a time
+            // or a treatment — not while it is still collecting name and phone.
+            if (event.card.type === 'slots' || event.card.type === 'treatments') {
+              pendingSlots = event.card;
+            } else {
+              addCard(event.card);
+            }
+          } else if (event.type === 'reset') {
+            assistantText = '';
+            setBubbleText(bubble, '');
+            splitter = sentenceSplitter();
+            stopSpeech();
           } else if (event.type === 'done') {
             if (event.error) failed = true;
             for (const s of splitter.push('', true)) speak(s);
+            if (pendingSlots && !/name|نام|phone|فون|نمبر|number/i.test(assistantText)) {
+              addCard(pendingSlots);
+            }
+            pendingSlots = null;
           }
         }
       }
@@ -682,6 +801,7 @@
       } else if (!failed) {
         state.messages.push({ role: 'assistant', content: assistantText });
         addReplay(bubble, assistantText);
+        saveChat();
 
         // The bot just asked which treatment — put the list in front of the
         // patient instead of making them type it.
@@ -689,7 +809,8 @@
           !state.treatmentChosen &&
           state.treatments?.length &&
           /treatment|علاج|درملن/i.test(assistantText) &&
-          /[?؟]/.test(assistantText)
+          /[?؟]/.test(assistantText) &&
+          !el.stream.querySelector('.card.treatments:not([data-done="true"])')
         ) {
           addCard({ type: 'treatments', items: state.treatments });
         }
@@ -706,6 +827,29 @@
       }
       el.field.focus({ preventScroll: true });
     }
+  }
+
+  function showQuickReplies() {
+    if (el.stream.querySelector('.quick')) return;
+    const row = document.createElement('div');
+    row.className = 'quick';
+    const options =
+      state.lang === 'ur'
+        ? ['اپائنٹمنٹ بک کریں', 'اوقات', 'قیمتیں', 'ڈاکٹر سے بات']
+        : ['Book an appointment', 'Timings', 'Treatments & prices', 'Talk to a person'];
+
+    for (const label of options) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = label;
+      btn.addEventListener('click', () => {
+        row.remove();
+        send(label);
+      });
+      row.append(btn);
+    }
+    el.stream.append(row);
+    scrollDown();
   }
 
   function addReplay(bubble, text) {
@@ -1017,13 +1161,36 @@
     await loadProvider();
 
     if (!state.messages.length) {
-      const greet = greetingFor(state.lang);
-      const bubble = addBubble('assistant', greet);
-      addReplay(bubble, greet);
-      state.messages.push({ role: 'assistant', content: greet });
-      // No auto-speak: the patient reads it and hears a reply only after they
-      // send something (or tap "Play again").
-      setStatus('Type or tap the mic to start');
+      const saved = loadChat();
+      if (saved) {
+        state.messages = saved.messages;
+        state.treatmentChosen = Boolean(saved.treatmentChosen);
+        if (saved.lang && saved.lang !== state.lang) {
+          state.lang = saved.lang;
+          const btn = el.langs.find((b) => b.dataset.lang === saved.lang);
+          if (btn) el.langs.forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+        }
+
+        const divider = document.createElement('div');
+        divider.className = 'divider';
+        divider.textContent = 'Earlier conversation';
+        el.stream.append(divider);
+
+        for (const message of state.messages) {
+          const bubble = addBubble(message.role, message.content);
+          if (message.role === 'assistant') addReplay(bubble, message.content);
+        }
+        setStatus('Continuing your earlier conversation');
+      } else {
+        const greet = greetingFor(state.lang);
+        const bubble = addBubble('assistant', greet);
+        addReplay(bubble, greet);
+        state.messages.push({ role: 'assistant', content: greet });
+        showQuickReplies();
+        // No auto-speak: the patient reads it and hears a reply only after they
+        // send something (or tap "Play again").
+        setStatus('Type or tap the mic to start');
+      }
     }
   }
 
@@ -1040,6 +1207,20 @@
   el.launcher.addEventListener('click', open);
   setTimeout(loadProvider, 0);
   el.close.addEventListener('click', close);
+  el.newchat.addEventListener('click', () => {
+    clearChat();
+    stopSpeech();
+    state.messages = [];
+    state.treatmentChosen = false;
+    el.stream.innerHTML = '';
+    const greet = greetingFor(state.lang);
+    const bubble = addBubble('assistant', greet);
+    addReplay(bubble, greet);
+    state.messages.push({ role: 'assistant', content: greet });
+    showQuickReplies();
+    setStatus('New conversation');
+    el.field.focus({ preventScroll: true });
+  });
   el.send.addEventListener('click', () => send(el.field.value));
   el.field.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1086,6 +1267,7 @@
       el.langs.forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
       el.field.placeholder = LANG_PLACEHOLDER[next];
       setStatus(`Reply language: ${LANG_LABEL[next]}`);
+      saveChat();
 
       // Nothing said yet? Swap the greeting so the change is immediately audible.
       if (state.open && state.messages.length <= 1) {

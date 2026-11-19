@@ -4,7 +4,9 @@ A voice assistant for the TK Dent website ([tanveerkhokar.vercel.app](https://ta
 Patients speak or type in Urdu or English, hear a natural voice reply, and can book an appointment.
 
 **Project documentation: [`docs/PROJECT.md`](docs/PROJECT.md)** — architecture, costs, deployment,
-limitations and the demo script. This file is the quick technical reference.
+limitations and the demo script.
+**Free-tier limits and the paid upgrade path: [`docs/FREE-VS-PAID.md`](docs/FREE-VS-PAID.md).**
+This file is the quick technical reference.
 
 ```
 node scripts/dev.mjs        # http://127.0.0.1:4173
@@ -34,6 +36,7 @@ lib/voicefilter.mjs  keeps replies short and non-repetitive
 lib/schedule.mjs     Pakistan-time slots
 lib/store.mjs        booking storage (memory / JSON / Supabase)
 lib/mock.mjs         scripted brain for key-free demos
+lib/faq.mjs          fixed answers for common questions
 scripts/dev.mjs      local server
 scripts/selfcheck.mjs end-to-end check
 test/                unit and integration tests
@@ -68,7 +71,8 @@ npm run check          # end-to-end check against the running server
   data-api="https://<project>.vercel.app"
   data-lang="en"
   data-langs="ur,en"
-  defer></script>
+  defer
+></script>
 ```
 
 Then `TKDentVoice.open()`, `.ask('book a cleaning')` or `.language('ur')` from any button.
@@ -76,6 +80,7 @@ Then `TKDentVoice.open()`, `.ask('book a cleaning')` or `.language('ur')` from a
 ## Behaviour notes
 
 - The greeting is shown as text; the assistant only speaks after the patient says or sends something.
+- Conversations persist in the browser for 12 hours, so a refresh resumes the same thread.
 - Replies are capped at two spoken sentences and one question — enforced server-side, not left to the model.
 - Emergencies (bleeding, swelling, injury) bypass the model entirely and use a fixed script.
 - ElevenLabs' free plan allows two concurrent requests; the client retries instead of switching voices.

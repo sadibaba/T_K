@@ -51,6 +51,19 @@ export default async function handler(req, res) {
   const lastUser = [...history].reverse().find((m) => m.role === 'user')?.content ?? '';
   const replyScript = looksRomanUrdu(lastUser) ? 'ur' : '';
 
+  // A closing message after a completed booking does not need the model at all.
+  const CLOSING =
+    /^(ok(ay)?|thanks|thank you|no thanks|no thank you|nahi|nahin|nahi thanks|shukriya|shukria|bye|goodbye|allah hafiz|khuda hafiz|شکریہ|نہیں|نہیں شکریہ|ٹھیک ہے|خدا حافظ|اللہ حافظ)[\s.!۔]*$/i;
+  const recent = history.slice(-6).map((m) => String(m.content ?? '')).join(' ');
+  const bookedAlready = /reference|ریفرنس|بک ہو گیا|booked|confirmed/i.test(recent);
+
+  if (history.length && CLOSING.test(String(history.at(-1).content).trim()) && bookedAlready) {
+    const closing = lang === 'en' ? 'You are welcome — see you at the clinic.' : 'شکریہ! کلینک میں ملتے ہیں۔';
+    sse(res, { type: 'delta', text: closing });
+    sse(res, { type: 'done', text: closing, intent: 'closing' });
+    return res.end();
+  }
+
   const started = Date.now();
   try {
     const runner = llmReady()
